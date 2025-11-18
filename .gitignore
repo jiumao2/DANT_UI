@@ -1,0 +1,4 @@
+.qtcreator/
+__pycache__/
+deployment/
+pysidedeploy.spec
