@@ -186,6 +186,8 @@ class MyApp(QWidget):
         self.ui.tabWidget.currentChanged.connect(self.change_tab)
         self.ui.tableView.clicked.connect(self.clickOnTable)
         self.ui.mergeButton.clicked.connect(self.merge_cluster)
+        self.ui.clusterMergeEdit_1.textChanged.connect(self.mergeClusterID1_TextChanged)
+        self.ui.clusterMergeEdit_2.textChanged.connect(self.mergeClusterID2_TextChanged)
 
         # Initialize data
         self.Data = Data()
@@ -399,7 +401,8 @@ class MyApp(QWidget):
         n_nearest_clusters = 15
         idx_sort = np.argsort(np.abs(self.rank_clusters - self.rank_clusters[self.merge_cluster_id1-1])).astype(np.int64)
 
-        self.similar_cluster_ids = (idx_sort[1:n_nearest_clusters+1] + 1).astype(np.int64)
+        self.similar_cluster_ids = (idx_sort[:n_nearest_clusters+1] + 1).astype(np.int64)
+        self.similar_cluster_ids = self.similar_cluster_ids[self.similar_cluster_ids != self.merge_cluster_id1]
 
         cluster_size = [len(np.where(self.IdxClusters == id)[0]) for id in self.similar_cluster_ids]
 
@@ -436,16 +439,17 @@ class MyApp(QWidget):
         sessions2 = self.Data.Sessions[self.UnitsCluster2]
 
         if len(sessions1) < 1 or len(sessions2) < 1:
-            QMessageBox.critical("Error", "Merge failed!")
+            QMessageBox.critical(self, "Error", "Merge failed!")
             return
 
         if np.any(np.isin(sessions1, sessions2)):
-            QMessageBox.critical("Error", "Merge failed! These 2 clusters contain units from the same sessions!")
+            QMessageBox.critical(self, "Error", "Merge failed! These 2 clusters contain units from the same sessions!")
             return
 
         new_id = self.merge_cluster_id1
         old_id = self.merge_cluster_id2
 
+        self.last_idx_clusters = self.IdxClusters.copy()
         self.IdxClusters[self.UnitsCluster2] = new_id
         print(f"Cluster #{old_id} is merged into Cluster #{new_id}!")
 
@@ -459,7 +463,6 @@ class MyApp(QWidget):
         assert(np.all(idx_clusters_new > 0))
         assert(np.unique(idx_clusters_new).size == idx_clusters_new.max())
 
-        self.last_idx_clusters = self.IdxClusters
         self.last_merged_cluster = new_id
         self.last_merged_cluster_gone = old_id
         self.IdxClusters = idx_clusters_new
@@ -533,7 +536,7 @@ class MyApp(QWidget):
             return
 
         # give the raw IDs back for these units
-        self.IdxClusters = self.last_idx_clusters
+        self.IdxClusters = self.last_idx_clusters.copy()
 
         print(f"Undo merge action from Cluster #{self.last_merged_cluster_gone} to Cluster #{self.last_merged_cluster}!")
 
@@ -811,9 +814,9 @@ class MyApp(QWidget):
             m1 = self.Data.Waveforms[units,:,:,0].mean()
             m2 = self.Data.Waveforms[units,:,:,1].mean()
             if m1 >= m2:
-                waveforms = np.squeeze(self.Data.Waveforms[units,:,:,0], axis=3)
+                waveforms = self.Data.Waveforms[units,:,:,0]
             else:
-                waveforms = np.squeeze(self.Data.Waveforms[units,:,:,1], axis=3)
+                waveforms = self.Data.Waveforms[units,:,:,1]
 
         ptt = np.max(waveforms, axis=2) - np.min(waveforms, axis=2)
         peak_channels = np.argmax(np.squeeze(ptt), axis=1)
@@ -894,7 +897,7 @@ class MyApp(QWidget):
             units = np.where(self.IdxClusters == cluster_id)[0]
             while len(units) <= 1:
                 cluster_id = cluster_id - 1
-                if max_cluster < cluster_id:
+                if cluster_id < 1:
                     QMessageBox.information(self, "Info", "No more clusters!")
                     return
                 units = np.where(self.IdxClusters == cluster_id)[0]
@@ -903,7 +906,7 @@ class MyApp(QWidget):
             self.initializeSplit()
         else:
             cluster_id = self.merge_cluster_id1 - 1
-            if cluster_id == 0:
+            if cluster_id < 1:
                 QMessageBox.information(self, "Info", "No more clusters!")
                 return
 
@@ -962,6 +965,9 @@ class MyApp(QWidget):
         self.ui.selectedUnitsView.setScene(self.ui.sceneUnitsSelected)
         self.ui.selectedUnitsView.fitInView(self.ui.sceneUnitsSelected.sceneRect(), Qt.IgnoreAspectRatio)
 
+        if self.plotMode == 'separated' and self.isSplitState:
+            self.plotModeChangedToSelected()
+
     def clusterID_TextChanged(self):
         raw_id = self.split_cluster_id
 
@@ -979,6 +985,34 @@ class MyApp(QWidget):
         self.split_cluster_id = new_id
         self.initializeSplit()
 
+    def mergeClusterID1_TextChanged(self):
+        if not self.ui.clusterMergeEdit_1.text().isdigit():
+            return
+
+        new_id = int(self.ui.clusterMergeEdit_1.text())
+
+        units = np.where(self.IdxClusters == new_id)[0]
+        if len(units) <= 0:
+            QMessageBox.information(self, "Info", "Bad cluster!")
+            return
+
+        self.merge_cluster_id1 = new_id
+        self.initializeMerge()
+
+    def mergeClusterID2_TextChanged(self):
+        if not self.ui.clusterMergeEdit_2.text().isdigit():
+            return
+
+        new_id = int(self.ui.clusterMergeEdit_2.text())
+
+        units = np.where(self.IdxClusters == new_id)[0]
+        if len(units) <= 0:
+            QMessageBox.information(self, "Info", "Bad cluster!")
+            return
+
+        self.merge_cluster_id2 = new_id
+        self.updateMergeCluster2()
+
     def plotModeChangedToSelected(self):
         self.plotMode = 'separated'
         self.updateWaveformView()
@@ -994,15 +1028,25 @@ class MyApp(QWidget):
 
     def clickOnImage(self, x, y):
         if self.isSplitState:
+            if x < 0: x = 0
+            if x >= len(self.Units): x = len(self.Units)-1
+            if y < 0: y = 0
+            if y >= len(self.Units): y = len(self.Units)-1
+
             self.Unit1 = self.Units[x]
             self.Unit2 = self.Units[y]
         else:
+            if x < 0: x = 0
+            if x >= len(self.UnitsMerge): x = len(self.UnitsMerge)-1
+            if y < 0: y = 0
+            if y >= len(self.UnitsMerge): y = len(self.UnitsMerge)-1
+
             self.Unit1 = self.UnitsMerge[x]
             self.Unit2 = self.UnitsMerge[y]
 
         if x != y:
             self.update_units_selected()
-        else:
+        elif self.isSplitState:
             unit_str = self.ui.unitsToSplitEdit.text()
             if not unit_str:
                 units = []

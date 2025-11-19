@@ -35,7 +35,7 @@
     <string notr="true"/>
    </property>
    <property name="currentIndex">
-    <number>0</number>
+    <number>2</number>
    </property>
    <widget class="QWidget" name="tab_1">
     <property name="enabled">
@@ -79,7 +79,7 @@
       </rect>
      </property>
      <property name="text">
-      <string>G:/DANT/Michael</string>
+      <string/>
      </property>
     </widget>
     <widget class="QPushButton" name="LoadDataButton">
@@ -580,7 +580,7 @@
       </rect>
      </property>
      <property name="readOnly">
-      <bool>true</bool>
+      <bool>false</bool>
      </property>
     </widget>
     <widget class="QLineEdit" name="clusterMergeEdit_2">
@@ -593,7 +593,7 @@
       </rect>
      </property>
      <property name="readOnly">
-      <bool>true</bool>
+      <bool>false</bool>
      </property>
     </widget>
     <widget class="QLabel" name="label_12">
