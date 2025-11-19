@@ -15,9 +15,9 @@ from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
     QFont, QFontDatabase, QGradient, QIcon,
     QImage, QKeySequence, QLinearGradient, QPainter,
     QPalette, QPixmap, QRadialGradient, QTransform)
-from PySide6.QtWidgets import (QApplication, QGraphicsView, QLabel, QLineEdit,
-    QListWidget, QListWidgetItem, QPushButton, QSizePolicy,
-    QTabWidget, QWidget)
+from PySide6.QtWidgets import (QApplication, QGraphicsView, QHeaderView, QLabel,
+    QLineEdit, QPushButton, QSizePolicy, QTabWidget,
+    QTableView, QWidget)
 
 class Ui_MyApp(object):
     def setupUi(self, MyApp):
@@ -189,9 +189,9 @@ class Ui_MyApp(object):
         self.mergeButton = QPushButton(self.tab_3)
         self.mergeButton.setObjectName(u"mergeButton")
         self.mergeButton.setGeometry(QRect(540, 130, 101, 23))
-        self.listWidget = QListWidget(self.tab_3)
-        self.listWidget.setObjectName(u"listWidget")
-        self.listWidget.setGeometry(QRect(70, 500, 256, 461))
+        self.tableView = QTableView(self.tab_3)
+        self.tableView.setObjectName(u"tableView")
+        self.tableView.setGeometry(QRect(70, 500, 256, 461))
         self.tabWidget.addTab(self.tab_3, "")
         self.PETH_Fig1 = QGraphicsView(MyApp)
         self.PETH_Fig1.setObjectName(u"PETH_Fig1")
@@ -226,7 +226,7 @@ class Ui_MyApp(object):
 
         self.retranslateUi(MyApp)
 
-        self.tabWidget.setCurrentIndex(0)
+        self.tabWidget.setCurrentIndex(2)
 
 
         QMetaObject.connectSlotsByName(MyApp)
@@ -244,7 +244,7 @@ class Ui_MyApp(object):
         self.folderEdit.setText(QCoreApplication.translate("MyApp", u"G:/DANT/Michael", None))
         self.LoadDataButton.setText(QCoreApplication.translate("MyApp", u"Load data", None))
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.tab_1), QCoreApplication.translate("MyApp", u"Load data", None))
-        self.selectUnitsButton.setText(QCoreApplication.translate("MyApp", u"Select units", None))
+        self.selectUnitsButton.setText(QCoreApplication.translate("MyApp", u"Separated", None))
         self.undoButton.setText(QCoreApplication.translate("MyApp", u"Undo", None))
         self.Unit1_label.setText(QCoreApplication.translate("MyApp", u"Anm_Session_Unit", None))
         self.splitButton.setText(QCoreApplication.translate("MyApp", u"Split", None))
@@ -252,7 +252,7 @@ class Ui_MyApp(object):
         self.label_7.setText(QCoreApplication.translate("MyApp", u"Units to split:", None))
         self.label_4.setText(QCoreApplication.translate("MyApp", u"Cluster:", None))
         self.saveButton.setText(QCoreApplication.translate("MyApp", u"Save", None))
-        self.allUnitsButton.setText(QCoreApplication.translate("MyApp", u"All units", None))
+        self.allUnitsButton.setText(QCoreApplication.translate("MyApp", u"All", None))
         self.nextButton.setText(QCoreApplication.translate("MyApp", u"Next cluster", None))
         self.label_5.setText(QCoreApplication.translate("MyApp", u"Unit1:", None))
         self.label_6.setText(QCoreApplication.translate("MyApp", u"Unit2:", None))

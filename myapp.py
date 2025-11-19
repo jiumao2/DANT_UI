@@ -4,8 +4,8 @@ import os
 
 os.environ["QT_API"] = "PySide6"
 
-from PySide6.QtWidgets import QApplication, QWidget, QGraphicsView, QGraphicsScene, QFileDialog, QMessageBox
-from PySide6.QtGui import QImage, QPixmap
+from PySide6.QtWidgets import QApplication, QWidget, QGraphicsView, QGraphicsScene, QFileDialog, QMessageBox, QHeaderView
+from PySide6.QtGui import QImage, QPixmap, QStandardItemModel, QStandardItem
 from PySide6.QtCore import Qt, Signal
 
 # Important:
@@ -34,6 +34,7 @@ class Data():
         self.channel_locations = None
         self.acg = None
         self.peth = None
+        self.idx_sort = None
 
         self.SimilarityMatrix = None
         self.Waveforms = None
@@ -81,6 +82,8 @@ class MyApp(QWidget):
         super().__init__(parent)
         self.ui = Ui_MyApp()
         self.ui.setupUi(self)
+
+        self.ui.tabWidget.setCurrentWidget(self.ui.tab_1)
 
         # Let ImageViewer replace Designer
         self.ui.viewer1 = ImageViewer(self)
@@ -162,21 +165,27 @@ class MyApp(QWidget):
         self.ui.PETHView_3.deleteLater()
         self.ui.PETHView_3 = self.ui.canvas_peth_3
 
+        # Table
+        self.ui.model = QStandardItemModel()
+        self.ui.model.setHorizontalHeaderLabels(["ClusterID", "ClusterSize", "Similarity", "Distance"])
+        self.ui.tableView.setModel(self.ui.model)
 
         # Connect events
         self.ui.selectFolderButton.clicked.connect(self.select_folder)
         self.ui.LoadDataButton.clicked.connect(self.load_data)
         self.ui.saveButton.clicked.connect(self.save)
-        self.ui.previousButton.clicked.connect(self.previousClusterSplit)
-        self.ui.nextButton.clicked.connect(self.nextClusterSplit)
+        self.ui.previousButton.clicked.connect(self.previousCluster)
+        self.ui.nextButton.clicked.connect(self.nextCluster)
         self.ui.similarityMatrixView.clicked.connect(self.clickOnImage)
         self.ui.unitsToSplitEdit.textChanged.connect(self.updateUnitsSelectedView)
         self.ui.clusterEdit.textChanged.connect(self.clusterID_TextChanged)
         self.ui.selectUnitsButton.clicked.connect(self.plotModeChangedToSelected)
         self.ui.allUnitsButton.clicked.connect(self.plotModeChangedToAll)
         self.ui.splitButton.clicked.connect(self.split_cluster)
-        self.ui.undoButton.clicked.connect(self.undo_split)
+        self.ui.undoButton.clicked.connect(self.undo_clicked)
         self.ui.tabWidget.currentChanged.connect(self.change_tab)
+        self.ui.tableView.clicked.connect(self.clickOnTable)
+        self.ui.mergeButton.clicked.connect(self.merge_cluster)
 
         # Initialize data
         self.Data = Data()
@@ -188,9 +197,13 @@ class MyApp(QWidget):
         self.last_splitted_units = None
         self.last_splitted_cluster_raw = None
         self.last_splitted_cluster_new = None
+        self.last_idx_clusters = None
+        self.last_merged_cluster = None
+        self.last_merged_cluster_gone = None
 
         # Params
-        self.splitPlotMode = 'all' # all or selected
+        self.plotMode = 'all' # all or separated
+        self.isSplitState = True
 
     def change_tab(self, index):
         ui_list = [self.ui.Unit1_label, self.ui.Unit2_label, self.ui.unit1Edit, self.ui.unit2Edit, self.ui.label_5, self.ui.label_6,
@@ -203,9 +216,17 @@ class MyApp(QWidget):
         if index == 0:
             return
         elif index == 1:
+            self.isSplitState = True
+            if self.split_cluster_id is None:
+                self.split_cluster_id = 1
             self.change_parents(ui_list, self.ui.tab_2)
+            self.initializeSplit()
         elif index == 2:
+            self.isSplitState = False
+            if self.merge_cluster_id1 is None:
+                self.merge_cluster_id1 = 1
             self.change_parents(ui_list, self.ui.tab_3)
+            self.initializeMerge()
 
     def change_parents(self, widget_list, tab_parent):
         for w in widget_list:
@@ -288,6 +309,7 @@ class MyApp(QWidget):
         self.Data.channel_locations = np.load(os.path.join(self.FolderCuration, 'channel_locations.npy'))
         self.Data.acg = np.load(os.path.join(self.FolderCuration, 'ACG.npy'))
         self.Data.peth = np.load(os.path.join(self.FolderCuration, 'peth.npy'))
+        self.Data.idx_sort = np.squeeze(np.astype(np.load(os.path.join(self.FolderCuration, 'sort_index.npy')), np.int64))
 
         self.Data.SimilarityMatrix = np.load(os.path.join(self.FolderCuration, 'SimilarityMatrix.npy'))
         # self.Data.Waveforms = np.load(os.path.join(self.FolderCuration, 'waveforms_corrected.npy'), mmap_mode="r")
@@ -323,22 +345,128 @@ class MyApp(QWidget):
 
 
     def initializeSplit(self):
+        self.isSplitState = True
+
         self.Units = np.where(self.IdxClusters == self.split_cluster_id)[0]
         self.Unit1 = self.Units[0]
         self.Unit2 = self.Units[1]
 
         self.ui.unitsToSplitEdit.setText('')
         self.ui.sceneUnitsSelected.clear()
-        self.ui.splitPlotMode = 'all'
+        self.plotMode = 'all'
         self.ui.clusterEdit.setText(f"{self.split_cluster_id}")
 
         self.update_units_selected()
-        self.updateFiguresSplit()
-        self.udpateDepthView()
+        self.updateFigures()
+        self.updateDepthView()
         self.updatePETHView()
         self.updateWaveformView()
         self.updateAcgView()
 
+    def initializeMerge(self):
+        self.isSplitState = False
+
+        self.updateMergeTable()
+        self.merge_cluster_id2 = self.similar_cluster_ids[0]
+
+        self.updateMergeCluster2()
+
+    def updateMergeCluster2(self):
+        self.UnitsCluster1 = np.where(self.IdxClusters == self.merge_cluster_id1)[0]
+        self.UnitsCluster2 = np.where(self.IdxClusters == self.merge_cluster_id2)[0]
+        self.UnitsMerge = np.concatenate((self.UnitsCluster1, self.UnitsCluster2))
+        self.Unit1 = self.UnitsCluster1[0]
+        self.Unit2 = self.UnitsCluster2[0]
+
+        self.plotMode = 'separated'
+
+        self.ui.clusterMergeEdit_1.setText(f"{self.merge_cluster_id1}")
+        self.ui.clusterMergeEdit_2.setText(f"{self.merge_cluster_id2}")
+
+        self.update_units_selected()
+        self.updateFigures()
+        self.updateUnitsSelectedView()
+        self.updateDepthView()
+        self.updatePETHView()
+        self.updateWaveformView()
+        self.updateAcgView()
+
+    def updateMergeTable(self):
+        self.rank_units = np.array([np.where(self.Data.idx_sort == unit+1)[0][0] for unit in range(self.NumUnits)])
+        n_clusters = self.IdxClusters.max().astype(np.int64)
+        self.rank_clusters = np.array([np.mean(self.rank_units[self.IdxClusters == k+1]) for k in range(n_clusters)])
+
+        n_nearest_clusters = 15
+        idx_sort = np.argsort(np.abs(self.rank_clusters - self.rank_clusters[self.merge_cluster_id1-1])).astype(np.int64)
+
+        self.similar_cluster_ids = (idx_sort[1:n_nearest_clusters+1] + 1).astype(np.int64)
+
+        cluster_size = [len(np.where(self.IdxClusters == id)[0]) for id in self.similar_cluster_ids]
+
+        distance = np.abs(self.rank_clusters[self.similar_cluster_ids-1] - self.rank_clusters[self.merge_cluster_id1-1])
+        similarity = np.zeros(n_nearest_clusters)
+
+        units1 = np.where(self.IdxClusters == self.merge_cluster_id1)[0]
+        for k in range(n_nearest_clusters):
+            units2 = np.where(self.IdxClusters == self.similar_cluster_ids[k])[0]
+            similarity[k] = self.Data.SimilarityMatrix[np.ix_(units1, units2)].mean()
+
+        self.ui.model.clear()
+        self.ui.model = QStandardItemModel()
+        self.ui.model.setHorizontalHeaderLabels(["Cluster", "Size", "Sim", "Dist"])
+        self.ui.tableView.setModel(self.ui.model)
+        for k in range(n_nearest_clusters):
+            row = [
+                QStandardItem(f"{self.similar_cluster_ids[k]}"),
+                QStandardItem(f"{cluster_size[k]}"),
+                QStandardItem(f"{similarity[k]:.2f}"),
+                QStandardItem(f"{distance[k]:.2f}")
+            ]
+            self.ui.model.appendRow(row)
+
+        self.ui.tableView.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.ui.tableView.show()
+
+
+    def merge_cluster(self):
+        # Merge criteria: No session collisions
+        # The cluster ids should be continued
+
+        sessions1 = self.Data.Sessions[self.UnitsCluster1]
+        sessions2 = self.Data.Sessions[self.UnitsCluster2]
+
+        if len(sessions1) < 1 or len(sessions2) < 1:
+            QMessageBox.critical("Error", "Merge failed!")
+            return
+
+        if np.any(np.isin(sessions1, sessions2)):
+            QMessageBox.critical("Error", "Merge failed! These 2 clusters contain units from the same sessions!")
+            return
+
+        new_id = self.merge_cluster_id1
+        old_id = self.merge_cluster_id2
+
+        self.IdxClusters[self.UnitsCluster2] = new_id
+        print(f"Cluster #{old_id} is merged into Cluster #{new_id}!")
+
+        # reorder the cluster ids
+        n_clusters = np.unique(self.IdxClusters).size
+        unique_clusters = np.unique(self.IdxClusters)
+        idx_clusters_new = np.zeros(self.NumUnits)
+        for k in range(n_clusters):
+            idx_clusters_new[self.IdxClusters==unique_clusters[k]] = k+1
+
+        assert(np.all(idx_clusters_new > 0))
+        assert(np.unique(idx_clusters_new).size == idx_clusters_new.max())
+
+        self.last_idx_clusters = self.IdxClusters
+        self.last_merged_cluster = new_id
+        self.last_merged_cluster_gone = old_id
+        self.IdxClusters = idx_clusters_new
+
+        # refresh the window
+        self.merge_cluster_id1 = new_id
+        self.initializeMerge()
 
     def split_cluster(self):
         unit_str = self.ui.unitsToSplitEdit.text()
@@ -364,6 +492,13 @@ class MyApp(QWidget):
 
         # refresh the window
         self.initializeSplit()
+
+
+    def undo_clicked(self):
+        if self.isSplitState:
+            self.undo_split()
+        else:
+            self.undo_merge()
 
     def undo_split(self):
         if self.last_splitted_units is None or self.last_splitted_cluster_raw is None or self.last_splitted_cluster_new is None:
@@ -392,20 +527,42 @@ class MyApp(QWidget):
         # refresh the window
         self.initializeSplit()
 
+    def undo_merge(self):
+        if self.last_idx_clusters is None or self.last_merged_cluster is None or self.last_merged_cluster_gone is None:
+            QMessageBox.critical(self, "Error", "Undo merge failed! No information about last merge action!")
+            return
+
+        # give the raw IDs back for these units
+        self.IdxClusters = self.last_idx_clusters
+
+        print(f"Undo merge action from Cluster #{self.last_merged_cluster_gone} to Cluster #{self.last_merged_cluster}!")
+
+        self.merge_cluster_id1 = self.last_merged_cluster
+        self.last_idx_clusters = None
+        self.last_merged_cluster = None
+        self.last_merged_cluster_gone = None
+
+        # refresh the window
+        self.initializeMerge()
+
     def save(self):
         # save the curated cluster matrix
-        # np.save(os.path.join(self.FolderCuration, 'ClusterMatrix.csv'), self.ClusterMatrix)
-        np.save(os.path.join(self.FolderCuration, 'IdxClusters.csv'), self.IdxClusters)
+        # np.save(os.path.join(self.FolderCuration, 'ClusterMatrix.npy'), self.ClusterMatrix)
+        np.save(os.path.join(self.FolderCuration, 'IdxClusters.npy'), self.IdxClusters)
 
         # save the current states
         states = {"split_cluster_id":self.split_cluster_id,
             "merge_cluster_id1":self.merge_cluster_id1,
-            "merge_cluster_id2":self.merge_cluster_id2,}
+            "merge_cluster_id2":self.merge_cluster_id2}
         df_state = pd.DataFrame(states, index=[0])
         df_state.to_csv(os.path.join(self.FolderCuration, 'curation_app.csv'))
 
-    def updateFiguresSplit(self):
-        img = self.Data.SimilarityMatrix[np.ix_(self.Units, self.Units)]
+    def updateFigures(self):
+        if self.isSplitState:
+            units = self.Units
+        else:
+            units = self.UnitsMerge
+        img = self.Data.SimilarityMatrix[np.ix_(units, units)]
 
         # Create a scene
         self.ui.scene_similarity.clear()
@@ -473,14 +630,26 @@ class MyApp(QWidget):
         self.ui.label_colorbar_min.setText(f"{img_min:.1f}")
         self.ui.label_colorbar_max.setText(f"{img_max:.1f}")
 
-    def udpateDepthView(self):
-        sessions_plot = self.Data.Sessions[self.Units]
-        depth_plot = self.Data.locations[self.Units, 1]
+    def updateDepthView(self):
+        if self.isSplitState:
+            units = self.Units
+        else:
+            units = self.UnitsMerge
+
+        sessions_plot = self.Data.Sessions[units]
+        depth_plot = self.Data.locations[units, 1]
 
         self.ui.ax_depth.clear()
 
-        self.ui.ax_depth.plot(sessions_plot, depth_plot, 'k-')
-        self.ui.ax_depth.set_xlim(sessions_plot[0]-0.5, sessions_plot[-1]+0.5)
+        if self.isSplitState:
+            self.ui.ax_depth.plot(sessions_plot, depth_plot, 'k-')
+        else:
+            idx1 = [np.where(self.UnitsMerge==unit)[0][0] for unit in self.UnitsCluster1]
+            idx2 = [np.where(self.UnitsMerge==unit)[0][0] for unit in self.UnitsCluster2]
+            self.ui.ax_depth.plot(sessions_plot[idx1], depth_plot[idx1], 'k-')
+            self.ui.ax_depth.plot(sessions_plot[idx2], depth_plot[idx2], 'b-')
+
+        self.ui.ax_depth.set_xlim(sessions_plot.min()-0.5, sessions_plot.max()+0.5)
         self.ui.ax_depth.set_ylim(depth_plot.min()-5, depth_plot.max()+5)
         self.ui.ax_depth.set_xlabel('Sessions', fontsize=7)
         self.ui.ax_depth.set_ylabel('Depth (μm)', fontsize=7)
@@ -492,16 +661,21 @@ class MyApp(QWidget):
 
         colors = [cmap(norm(i)) for i in sessions_plot]
 
-        if self.splitPlotMode == 'selected':
-            unit_str = self.ui.unitsToSplitEdit.text()
-            if not unit_str:
-                units = []
-            else:
-                units = [int(x.strip()) for x in unit_str.split(', ')]
+        if self.plotMode == 'separated':
+            if self.isSplitState:
+                unit_str = self.ui.unitsToSplitEdit.text()
+                if not unit_str:
+                    units_this = []
+                else:
+                    units_this = [int(x.strip()) for x in unit_str.split(', ')]
 
-            idx = [np.where(self.Units==unit)[0][0] for unit in units]
-            for j in idx:
-                colors[j] = cmap2(norm(sessions_plot[j]))
+                idx = [np.where(self.Units==unit)[0][0] for unit in units_this]
+                for j in idx:
+                    colors[j] = cmap2(norm(sessions_plot[j]))
+            else:
+                idx = [np.where(self.UnitsMerge==unit)[0][0] for unit in self.UnitsCluster1]
+                for j in idx:
+                    colors[j] = cmap2(norm(sessions_plot[j]))
 
         self.ui.ax_depth.scatter(sessions_plot, depth_plot, c=colors)
 
@@ -510,11 +684,16 @@ class MyApp(QWidget):
 
 
     def updatePETHView(self):
-        sessions_plot = self.Data.Sessions[self.Units]
+        if self.isSplitState:
+            units = self.Units
+        else:
+            units = self.UnitsMerge
+
+        sessions_plot = self.Data.Sessions[units]
         t = np.linspace(-500, 500, 1000)
-        peth_1 = np.squeeze(self.Data.peth[self.Units,:,0])
-        peth_2 = np.squeeze(self.Data.peth[self.Units,:,1])
-        peth_3 = np.squeeze(self.Data.peth[self.Units,:,2])
+        peth_1 = np.squeeze(self.Data.peth[units,:,0])
+        peth_2 = np.squeeze(self.Data.peth[units,:,1])
+        peth_3 = np.squeeze(self.Data.peth[units,:,2])
 
         # Define colormap + normalization
         cmap = matplotlib.colormaps.get_cmap("winter")
@@ -523,16 +702,21 @@ class MyApp(QWidget):
 
         colors = [cmap(norm(i)) for i in sessions_plot]
 
-        if self.splitPlotMode == 'selected':
-            unit_str = self.ui.unitsToSplitEdit.text()
-            if not unit_str:
-                units = []
-            else:
-                units = [int(x.strip()) for x in unit_str.split(', ')]
+        if self.plotMode == 'separated':
+            if self.isSplitState:
+                unit_str = self.ui.unitsToSplitEdit.text()
+                if not unit_str:
+                    units_this = []
+                else:
+                    units_this = [int(x.strip()) for x in unit_str.split(', ')]
 
-            idx = [np.where(self.Units==unit)[0][0] for unit in units]
-            for j in idx:
-                colors[j] = cmap2(norm(sessions_plot[j]))
+                idx = [np.where(self.Units==unit)[0][0] for unit in units_this]
+                for j in idx:
+                    colors[j] = cmap2(norm(sessions_plot[j]))
+            else:
+                idx = [np.where(self.UnitsMerge==unit)[0][0] for unit in self.UnitsCluster1]
+                for j in idx:
+                    colors[j] = cmap2(norm(sessions_plot[j]))
 
         # Plot
         self.ui.ax_peth_1.clear()
@@ -572,9 +756,14 @@ class MyApp(QWidget):
         self.ui.PETHView_3.draw()
 
     def updateAcgView(self):
-        sessions_plot = self.Data.Sessions[self.Units]
+        if self.isSplitState:
+            units = self.Units
+        else:
+            units = self.UnitsMerge
+
+        sessions_plot = self.Data.Sessions[units]
         t = np.linspace(-300, 300, 601)
-        acg = self.Data.acg[self.Units,:]
+        acg = self.Data.acg[units,:]
 
         # Define colormap + normalization
         cmap = matplotlib.colormaps.get_cmap("winter")
@@ -582,16 +771,21 @@ class MyApp(QWidget):
         norm = Normalize(vmin=1, vmax=self.NumSessions)
 
         colors = [cmap(norm(i)) for i in sessions_plot]
-        if self.splitPlotMode == 'selected':
-            unit_str = self.ui.unitsToSplitEdit.text()
-            if not unit_str:
-                units = []
-            else:
-                units = [int(x.strip()) for x in unit_str.split(', ')]
+        if self.plotMode == 'separated':
+            if self.isSplitState:
+                unit_str = self.ui.unitsToSplitEdit.text()
+                if not unit_str:
+                    units_this = []
+                else:
+                    units_this = [int(x.strip()) for x in unit_str.split(', ')]
 
-            idx = [np.where(self.Units==unit)[0][0] for unit in units]
-            for j in idx:
-                colors[j] = cmap2(norm(sessions_plot[j]))
+                idx = [np.where(self.Units==unit)[0][0] for unit in units_this]
+                for j in idx:
+                    colors[j] = cmap2(norm(sessions_plot[j]))
+            else:
+                idx = [np.where(self.UnitsMerge==unit)[0][0] for unit in self.UnitsCluster1]
+                for j in idx:
+                    colors[j] = cmap2(norm(sessions_plot[j]))
 
         # Plot
         self.ui.ax_acg.clear()
@@ -606,11 +800,22 @@ class MyApp(QWidget):
         self.ui.acgView.draw()
 
     def updateWaveformView(self):
-        if self.Data.nTemplates == 1:
-            waveforms = self.Data.Waveforms[self.Units,:,:]
+        if self.isSplitState:
+            units = self.Units
         else:
-            waveforms = self.Data.Waveforms[self.Units,:,:,0]
-        ptt = np.squeeze(np.max(waveforms, axis=2) - np.min(waveforms, axis=2))
+            units = self.UnitsMerge
+
+        if self.Data.nTemplates == 1:
+            waveforms = self.Data.Waveforms[units,:,:]
+        else:
+            m1 = self.Data.Waveforms[units,:,:,0].mean()
+            m2 = self.Data.Waveforms[units,:,:,1].mean()
+            if m1 >= m2:
+                waveforms = np.squeeze(self.Data.Waveforms[units,:,:,0], axis=3)
+            else:
+                waveforms = np.squeeze(self.Data.Waveforms[units,:,:,1], axis=3)
+
+        ptt = np.max(waveforms, axis=2) - np.min(waveforms, axis=2)
         peak_channels = np.argmax(np.squeeze(ptt), axis=1)
         ch = mode(peak_channels)[0]
         amplitude = ptt.max()
@@ -635,7 +840,7 @@ class MyApp(QWidget):
         x_scale = 3
         y_scale = 1
         waveform_scale = 1/amplitude*50;
-        for j in range(len(self.Units)):
+        for j in range(len(units)):
             x_this = []
             y_this = []
             for k in range(n_channels):
@@ -650,7 +855,7 @@ class MyApp(QWidget):
             x_plot.append(np.concatenate(x_this))
             y_plot.append(np.concatenate(y_this))
 
-        sessions_plot = self.Data.Sessions[self.Units]
+        sessions_plot = self.Data.Sessions[units]
         # Define colormap + normalization
         cmap = matplotlib.colormaps.get_cmap("winter")
         cmap2 = matplotlib.colormaps.get_cmap("copper")
@@ -658,7 +863,81 @@ class MyApp(QWidget):
 
         colors = [cmap(norm(i)) for i in sessions_plot]
 
-        if self.splitPlotMode == 'selected':
+        if self.plotMode == 'separated':
+            if self.isSplitState:
+                unit_str = self.ui.unitsToSplitEdit.text()
+                if not unit_str:
+                    units_this = []
+                else:
+                    units_this = [int(x.strip()) for x in unit_str.split(', ')]
+
+                idx = [np.where(self.Units==unit)[0][0] for unit in units_this]
+                for j in idx:
+                    colors[j] = cmap2(norm(sessions_plot[j]))
+            else:
+                idx = [np.where(self.UnitsMerge==unit)[0][0] for unit in self.UnitsCluster1]
+                for j in idx:
+                    colors[j] = cmap2(norm(sessions_plot[j]))
+
+        self.ui.ax_waveform.clear()
+        for k in range(len(units)):
+            self.ui.ax_waveform.plot(x_plot[k], y_plot[k], color=colors[k])
+
+        self.ui.ax_waveform.axis("off")
+
+        self.ui.waveformView.draw()
+
+    def previousCluster(self):
+        if self.isSplitState:
+            cluster_id = self.split_cluster_id - 1
+
+            units = np.where(self.IdxClusters == cluster_id)[0]
+            while len(units) <= 1:
+                cluster_id = cluster_id - 1
+                if max_cluster < cluster_id:
+                    QMessageBox.information(self, "Info", "No more clusters!")
+                    return
+                units = np.where(self.IdxClusters == cluster_id)[0]
+
+            self.split_cluster_id = cluster_id
+            self.initializeSplit()
+        else:
+            cluster_id = self.merge_cluster_id1 - 1
+            if cluster_id == 0:
+                QMessageBox.information(self, "Info", "No more clusters!")
+                return
+
+            self.merge_cluster_id1 = cluster_id
+            self.initializeMerge()
+
+    def nextCluster(self):
+        max_cluster = max(self.IdxClusters)
+        if self.isSplitState:
+            cluster_id = self.split_cluster_id + 1
+
+            units = np.where(self.IdxClusters == cluster_id)[0]
+            while len(units) <= 1:
+                cluster_id = cluster_id + 1
+                if max_cluster < cluster_id:
+                    QMessageBox.information(self, "Info", "No more clusters!")
+                    return
+                units = np.where(self.IdxClusters == cluster_id)[0]
+
+            self.split_cluster_id = cluster_id
+            self.initializeSplit()
+        else:
+            cluster_id = self.merge_cluster_id1 + 1
+            if cluster_id > max_cluster:
+                QMessageBox.information(self, "Info", "No more clusters!")
+                return
+
+            self.merge_cluster_id1 = cluster_id
+            self.initializeMerge()
+
+    def updateUnitsSelectedView(self):
+        if self.isSplitState:
+            img = 255*np.ones((1, len(self.Units), 3)).astype(np.uint8)
+
             unit_str = self.ui.unitsToSplitEdit.text()
             if not unit_str:
                 units = []
@@ -666,57 +945,10 @@ class MyApp(QWidget):
                 units = [int(x.strip()) for x in unit_str.split(', ')]
 
             idx = [np.where(self.Units==unit)[0][0] for unit in units]
-            for j in idx:
-                colors[j] = cmap2(norm(sessions_plot[j]))
-
-        self.ui.ax_waveform.clear()
-        for k in range(len(self.Units)):
-            self.ui.ax_waveform.plot(x_plot[k], y_plot[k], color=colors[k])
-
-        self.ui.ax_waveform.axis("off")
-
-        self.ui.waveformView.draw()
-
-    def previousClusterSplit(self):
-        cluster_id = self.split_cluster_id - 1
-
-        units = np.where(self.IdxClusters == cluster_id)[0]
-        while len(units) <= 1:
-            cluster_id = cluster_id - 1
-            if max_cluster < cluster_id:
-                QMessageBox.information(self, "Info", "No more clusters!")
-                return
-            units = np.where(self.IdxClusters == cluster_id)[0]
-
-        self.split_cluster_id = cluster_id
-        self.initializeSplit()
-
-    def nextClusterSplit(self):
-        max_cluster = max(self.IdxClusters)
-        cluster_id = self.split_cluster_id + 1
-
-        units = np.where(self.IdxClusters == cluster_id)[0]
-        while len(units) <= 1:
-            cluster_id = cluster_id + 1
-            if max_cluster < cluster_id:
-                QMessageBox.information(self, "Info", "No more clusters!")
-                return
-            units = np.where(self.IdxClusters == cluster_id)[0]
-
-        self.split_cluster_id = cluster_id
-        self.initializeSplit()
-
-
-    def updateUnitsSelectedView(self):
-        img = 255*np.ones((1, len(self.Units), 3)).astype(np.uint8)
-
-        unit_str = self.ui.unitsToSplitEdit.text()
-        if not unit_str:
-            units = []
         else:
-            units = [int(x.strip()) for x in unit_str.split(', ')]
+            img = 255*np.ones((1, len(self.UnitsMerge), 3)).astype(np.uint8)
+            idx = [np.where(self.UnitsMerge == unit)[0][0] for unit in self.UnitsCluster1]
 
-        idx = [np.where(self.Units==unit)[0] for unit in units]
         img[:,idx,:] = np.uint8(0)
 
         h, w, ch = img.shape
@@ -748,21 +980,26 @@ class MyApp(QWidget):
         self.initializeSplit()
 
     def plotModeChangedToSelected(self):
-        self.splitPlotMode = 'selected'
+        self.plotMode = 'separated'
         self.updateWaveformView()
         self.updatePETHView()
         self.updateAcgView()
-        self.udpateDepthView()
+        self.updateDepthView()
     def plotModeChangedToAll(self):
-        self.splitPlotMode = 'all'
+        self.plotMode = 'all'
         self.updateWaveformView()
         self.updatePETHView()
         self.updateAcgView()
-        self.udpateDepthView()
+        self.updateDepthView()
 
     def clickOnImage(self, x, y):
-        self.Unit1 = self.Units[x]
-        self.Unit2 = self.Units[y]
+        if self.isSplitState:
+            self.Unit1 = self.Units[x]
+            self.Unit2 = self.Units[y]
+        else:
+            self.Unit1 = self.UnitsMerge[x]
+            self.Unit2 = self.UnitsMerge[y]
+
         if x != y:
             self.update_units_selected()
         else:
@@ -778,6 +1015,11 @@ class MyApp(QWidget):
             self.ui.unitsToSplitEdit.setText(', '.join(str(x) for x in units))
             self.updateUnitsSelectedView()
 
+
+
+    def clickOnTable(self, index):
+        self.merge_cluster_id2 = self.similar_cluster_ids[index.row()]
+        self.updateMergeCluster2()
 
     def closeEvent(self, event):
         reply = QMessageBox.question(

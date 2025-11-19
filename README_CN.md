@@ -33,6 +33,7 @@ pip install -r requirements.txt
     ├── session_index.npy
     ├── SimilarityMatrix.npy
     ├── waveforms_corrected.npy
+    ├── sort_index.npy
     ├── Meta.csv
     └── session_names.csv
 └── PETH_Figs
@@ -51,7 +52,9 @@ python myapp.py
 
 ![](./doc/UI_LoadData.png)
 
-4. 加载完成后，自动进入第二个Splitting界面。检查的逻辑是先检查每一个Cluster内是否有错误聚类的结果，将其拆分。最后在第三个Merging界面（尚未完成），将相同的Cluster合并。
+4. 加载完成后，自动进入第二个Splitting界面。检查的逻辑是先检查每一个Cluster内是否有错误聚类的结果，将其拆分。最后在第三个Merging界面，将相同的Cluster合并。
+
+5. 点击Save按钮保存当前结果。当前结果会被存储在`DANT_Curation/IdxClusters.npy`文件中并在下一次加载数据时被自动读取。
 
 ## Splitting界面使用说明
 
@@ -67,4 +70,18 @@ python myapp.py
 
 5. 点击Previous Cluster和Next Cluster按钮可以切换到上一个或下一个Cluster进行检查和拆分。
 
-6. 点击Save按钮保存当前结果。当前结果会被存储在`DANT_Curation/IdxClusters.npy`文件中并在下一次加载数据时被自动读取。
+## Merging界面使用说明
+
+![](./doc/UI_tab3.png)
+
+1. 左上角显示一些元信息，并且包括右侧PETH图像选用的神经元（Unit1和Unit2）。Cluster1是当前选择的Cluster，Cluster2与Cluster1较为相似，可能需要合并的神经元。
+
+2. 左侧为Similarity Matrix热图，显示当前Cluster1和Cluster2内各个神经元之间的相似度（同上）。改图上方的黑色线条表示Cluster1的Units。
+
+3. 左下方为与Cluster1最相似的15个Cluster列表，点击某一行可以选择该Cluster作为Cluster2进行对比。Size表示该Cluster包含的Unit数量，Sim表示两个Cluster的Unit之间的平均相似度，Distance表示两个Cluster的中心之间的距离（由HDBSCAN将Unit排序得到）。
+
+4. 右侧图像与Splitting界面类似，显示了Cluster1和Cluster2内神经元的Waveform，ACG以及PETH。Cluster1的Units由Copper colormap显示，Cluster2的Units由Winter colormap显示。
+
+5. 点击Merge按钮后，Cluster2内的所有神经元的Cluster ID会被修改为Cluster1的ID。点击Undo按钮可以撤销上一次合并操作（无法撤销上上次的操作）。
+
+6. 点击Previous Pair和Next Pair按钮可以切换到上一个或下一个Cluster对进行检查和合并。
