@@ -1,5 +1,6 @@
 # DANT Curation App
-[![View DANT on GitHub](https://img.shields.io/badge/GitHub-DANT-blue.svg)](https://github.com/jiumao2/DANT_UI)
+[![View DANT on GitHub](https://img.shields.io/badge/GitHub-DANT-blue.svg)](https://github.com/jiumao2/DANT_UI)  
+
 语言：[English](./README.md) | [中文](./README_CN.md)
 
 ## 安装
@@ -86,4 +87,4 @@ python myapp.py
 
 5. 点击Merge按钮后，Cluster2内的所有神经元的Cluster ID会被修改为Cluster1的ID。点击Undo按钮可以撤销上一次合并操作（无法撤销上上次的操作）。
 
-6. 点击Previous Pair和Next Pair按钮可以切换到上一个或下一个Cluster对进行检查和合并。
+6. 点击Previous Cluster和Next Cluster按钮可以切换到上一个或下一个Cluster进行检查和合并。
