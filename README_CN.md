@@ -1,4 +1,6 @@
 # DANT Curation App
+[![View DANT on GitHub](https://img.shields.io/badge/GitHub-DANT-blue.svg)](https://github.com/jiumao2/DANT_UI)
+语言：[English](./README.md) | [中文](./README_CN.md)
 
 ## 安装
 
