@@ -811,9 +811,9 @@ class MyApp(QWidget):
         if self.Data.nTemplates == 1:
             waveforms = self.Data.Waveforms[units,:,:]
         else:
-            m1 = self.Data.Waveforms[units,:,:,0].mean()
-            m2 = self.Data.Waveforms[units,:,:,1].mean()
-            if m1 >= m2:
+            mean_ptt_1 = (np.max(self.Data.Waveforms[units,:,:,0], axis=2) - np.min(self.Data.Waveforms[units,:,:,0], axis=2)).mean()
+            mean_ptt_2 = (np.max(self.Data.Waveforms[units,:,:,1], axis=2) - np.min(self.Data.Waveforms[units,:,:,1], axis=2)).mean()
+            if mean_ptt_1 >= mean_ptt_2:
                 waveforms = self.Data.Waveforms[units,:,:,0]
             else:
                 waveforms = self.Data.Waveforms[units,:,:,1]
