@@ -5,7 +5,7 @@ import os
 os.environ["QT_API"] = "PySide6"
 
 from PySide6.QtWidgets import QApplication, QWidget, QGraphicsView, QGraphicsScene, QFileDialog, QMessageBox, QHeaderView
-from PySide6.QtGui import QImage, QPixmap, QStandardItemModel, QStandardItem
+from PySide6.QtGui import QImage, QPixmap, QStandardItemModel, QStandardItem, QKeySequence, QShortcut
 from PySide6.QtCore import Qt, Signal
 
 # Important:
@@ -83,6 +83,7 @@ class MyApp(QWidget):
         self.ui = Ui_MyApp()
         self.ui.setupUi(self)
 
+        self.setWindowTitle("DANT curation")
         self.ui.tabWidget.setCurrentWidget(self.ui.tab_1)
 
         # Let ImageViewer replace Designer
@@ -188,6 +189,30 @@ class MyApp(QWidget):
         self.ui.mergeButton.clicked.connect(self.merge_cluster)
         self.ui.clusterMergeEdit_1.textChanged.connect(self.mergeClusterID1_TextChanged)
         self.ui.clusterMergeEdit_2.textChanged.connect(self.mergeClusterID2_TextChanged)
+
+        # Shortcuts
+        shortcut_save = QShortcut(QKeySequence("Ctrl+S"), self)
+        shortcut_previous1 = QShortcut(QKeySequence("A"), self)
+        shortcut_previous2 = QShortcut(QKeySequence(Qt.Key_Left), self)
+        shortcut_next1 = QShortcut(QKeySequence("D"), self)
+        shortcut_next2 = QShortcut(QKeySequence(Qt.Key_Right), self)
+        shortcut_up1 = QShortcut(QKeySequence("W"), self)
+        shortcut_up2 = QShortcut(QKeySequence(Qt.Key_Up), self)
+        shortcut_down1 = QShortcut(QKeySequence("S"), self)
+        shortcut_down2 = QShortcut(QKeySequence(Qt.Key_Down), self)
+        shortcut_undo = QShortcut(QKeySequence("Ctrl+Z"), self)
+
+        # Connect all to the same action
+        shortcut_save.activated.connect(self.ui.saveButton.clicked)
+        shortcut_previous1.activated.connect(self.ui.previousButton.clicked)
+        shortcut_previous2.activated.connect(self.ui.previousButton.clicked)
+        shortcut_next1.activated.connect(self.ui.nextButton.clicked)
+        shortcut_next2.activated.connect(self.ui.nextButton.clicked)
+        shortcut_up1.activated.connect(self.previousCluster2)
+        shortcut_up2.activated.connect(self.previousCluster2)
+        shortcut_down1.activated.connect(self.nextCluster2)
+        shortcut_down2.activated.connect(self.nextCluster2)
+        shortcut_undo.activated.connect(self.ui.undoButton.clicked)
 
         # Initialize data
         self.Data = Data()
@@ -357,6 +382,7 @@ class MyApp(QWidget):
         self.ui.sceneUnitsSelected.clear()
         self.plotMode = 'all'
         self.ui.clusterEdit.setText(f"{self.split_cluster_id}")
+        self.ui.clusterNumEdit.setText(f"{int(self.IdxClusters.max())}")
 
         self.update_units_selected()
         self.updateFigures()
@@ -367,6 +393,8 @@ class MyApp(QWidget):
 
     def initializeMerge(self):
         self.isSplitState = False
+
+        self.ui.clusterNumEdit.setText(f"{int(self.IdxClusters.max())}")
 
         self.updateMergeTable()
         self.merge_cluster_id2 = self.similar_cluster_ids[0]
@@ -384,6 +412,8 @@ class MyApp(QWidget):
 
         self.ui.clusterMergeEdit_1.setText(f"{self.merge_cluster_id1}")
         self.ui.clusterMergeEdit_2.setText(f"{self.merge_cluster_id2}")
+        self.ui.cluster1_size_label.setText(f"({len(self.UnitsCluster1)})")
+        self.ui.cluster2_size_label.setText(f"({len(self.UnitsCluster2)})")
 
         self.update_units_selected()
         self.updateFigures()
@@ -398,21 +428,27 @@ class MyApp(QWidget):
         n_clusters = self.IdxClusters.max().astype(np.int64)
         self.rank_clusters = np.array([np.mean(self.rank_units[self.IdxClusters == k+1]) for k in range(n_clusters)])
 
-        n_nearest_clusters = 15
-        idx_sort = np.argsort(np.abs(self.rank_clusters - self.rank_clusters[self.merge_cluster_id1-1])).astype(np.int64)
+        n_nearest_clusters = 20
+
+        units1 = np.where(self.IdxClusters == self.merge_cluster_id1)[0]
+        similarity = [np.nanmax(self.Data.SimilarityMatrix[np.ix_(units1, np.where(self.IdxClusters == k+1)[0])]) for k in range(n_clusters)]
+        similarity = np.where(np.isnan(similarity), -np.inf, similarity)
+
+        idx_sort = np.argsort(similarity).astype(np.int64)[::-1]
 
         self.similar_cluster_ids = (idx_sort[:n_nearest_clusters+1] + 1).astype(np.int64)
         self.similar_cluster_ids = self.similar_cluster_ids[self.similar_cluster_ids != self.merge_cluster_id1]
 
         cluster_size = [len(np.where(self.IdxClusters == id)[0]) for id in self.similar_cluster_ids]
-
         distance = np.abs(self.rank_clusters[self.similar_cluster_ids-1] - self.rank_clusters[self.merge_cluster_id1-1])
-        similarity = np.zeros(n_nearest_clusters)
+        similarity = [np.nanmax(self.Data.SimilarityMatrix[np.ix_(units1, np.where(self.IdxClusters == k)[0])]) for k in self.similar_cluster_ids]
 
-        units1 = np.where(self.IdxClusters == self.merge_cluster_id1)[0]
-        for k in range(n_nearest_clusters):
-            units2 = np.where(self.IdxClusters == self.similar_cluster_ids[k])[0]
-            similarity[k] = self.Data.SimilarityMatrix[np.ix_(units1, units2)].mean()
+        # similarity = np.zeros(n_nearest_clusters)
+
+        # units1 = np.where(self.IdxClusters == self.merge_cluster_id1)[0]
+        # for k in range(n_nearest_clusters):
+        #     units2 = np.where(self.IdxClusters == self.similar_cluster_ids[k])[0]
+        #     similarity[k] = self.Data.SimilarityMatrix[np.ix_(units1, units2)].mean()
 
         self.ui.model.clear()
         self.ui.model = QStandardItemModel()
@@ -553,6 +589,8 @@ class MyApp(QWidget):
         # np.save(os.path.join(self.FolderCuration, 'ClusterMatrix.npy'), self.ClusterMatrix)
         np.save(os.path.join(self.FolderCuration, 'IdxClusters.npy'), self.IdxClusters)
 
+        print(f'The output is saved to {os.path.join(self.FolderCuration, "IdxClusters.npy")}!')
+
         # save the current states
         states = {"split_cluster_id":self.split_cluster_id,
             "merge_cluster_id1":self.merge_cluster_id1,
@@ -660,9 +698,9 @@ class MyApp(QWidget):
 
         cmap = matplotlib.colormaps.get_cmap("winter")
         cmap2 = matplotlib.colormaps.get_cmap("copper")
-        norm = Normalize(vmin=1, vmax=self.NumSessions)
+        norm = Normalize(vmin=0, vmax=len(units)-1)
 
-        colors = [cmap(norm(i)) for i in sessions_plot]
+        colors = [cmap(norm(i)) for i in range(len(units))]
 
         if self.plotMode == 'separated':
             if self.isSplitState:
@@ -674,11 +712,11 @@ class MyApp(QWidget):
 
                 idx = [np.where(self.Units==unit)[0][0] for unit in units_this]
                 for j in idx:
-                    colors[j] = cmap2(norm(sessions_plot[j]))
+                    colors[j] = cmap2(norm(j))
             else:
                 idx = [np.where(self.UnitsMerge==unit)[0][0] for unit in self.UnitsCluster1]
                 for j in idx:
-                    colors[j] = cmap2(norm(sessions_plot[j]))
+                    colors[j] = cmap2(norm(j))
 
         self.ui.ax_depth.scatter(sessions_plot, depth_plot, c=colors)
 
@@ -701,9 +739,9 @@ class MyApp(QWidget):
         # Define colormap + normalization
         cmap = matplotlib.colormaps.get_cmap("winter")
         cmap2 = matplotlib.colormaps.get_cmap("copper")
-        norm = Normalize(vmin=1, vmax=self.NumSessions)
+        norm = Normalize(vmin=0, vmax=len(units)-1)
 
-        colors = [cmap(norm(i)) for i in sessions_plot]
+        colors = [cmap(norm(i)) for i in range(len(units))]
 
         if self.plotMode == 'separated':
             if self.isSplitState:
@@ -715,11 +753,11 @@ class MyApp(QWidget):
 
                 idx = [np.where(self.Units==unit)[0][0] for unit in units_this]
                 for j in idx:
-                    colors[j] = cmap2(norm(sessions_plot[j]))
+                    colors[j] = cmap2(norm(j))
             else:
                 idx = [np.where(self.UnitsMerge==unit)[0][0] for unit in self.UnitsCluster1]
                 for j in idx:
-                    colors[j] = cmap2(norm(sessions_plot[j]))
+                    colors[j] = cmap2(norm(j))
 
         # Plot
         self.ui.ax_peth_1.clear()
@@ -771,9 +809,10 @@ class MyApp(QWidget):
         # Define colormap + normalization
         cmap = matplotlib.colormaps.get_cmap("winter")
         cmap2 = matplotlib.colormaps.get_cmap("copper")
-        norm = Normalize(vmin=1, vmax=self.NumSessions)
+        norm = Normalize(vmin=0, vmax=len(units)-1)
 
-        colors = [cmap(norm(i)) for i in sessions_plot]
+        colors = [cmap(norm(i)) for i in range(len(units))]
+
         if self.plotMode == 'separated':
             if self.isSplitState:
                 unit_str = self.ui.unitsToSplitEdit.text()
@@ -784,11 +823,11 @@ class MyApp(QWidget):
 
                 idx = [np.where(self.Units==unit)[0][0] for unit in units_this]
                 for j in idx:
-                    colors[j] = cmap2(norm(sessions_plot[j]))
+                    colors[j] = cmap2(norm(j))
             else:
                 idx = [np.where(self.UnitsMerge==unit)[0][0] for unit in self.UnitsCluster1]
                 for j in idx:
-                    colors[j] = cmap2(norm(sessions_plot[j]))
+                    colors[j] = cmap2(norm(j))
 
         # Plot
         self.ui.ax_acg.clear()
@@ -862,9 +901,9 @@ class MyApp(QWidget):
         # Define colormap + normalization
         cmap = matplotlib.colormaps.get_cmap("winter")
         cmap2 = matplotlib.colormaps.get_cmap("copper")
-        norm = Normalize(vmin=1, vmax=self.NumSessions)
+        norm = Normalize(vmin=0, vmax=len(units)-1)
 
-        colors = [cmap(norm(i)) for i in sessions_plot]
+        colors = [cmap(norm(i)) for i in range(len(units))]
 
         if self.plotMode == 'separated':
             if self.isSplitState:
@@ -876,11 +915,11 @@ class MyApp(QWidget):
 
                 idx = [np.where(self.Units==unit)[0][0] for unit in units_this]
                 for j in idx:
-                    colors[j] = cmap2(norm(sessions_plot[j]))
+                    colors[j] = cmap2(norm(j))
             else:
                 idx = [np.where(self.UnitsMerge==unit)[0][0] for unit in self.UnitsCluster1]
                 for j in idx:
-                    colors[j] = cmap2(norm(sessions_plot[j]))
+                    colors[j] = cmap2(norm(j))
 
         self.ui.ax_waveform.clear()
         for k in range(len(units)):
@@ -1055,6 +1094,8 @@ class MyApp(QWidget):
 
             if self.Units[x] not in units:
                 units.append(self.Units[x])
+            else:
+                units.remove(self.Units[x])
 
             self.ui.unitsToSplitEdit.setText(', '.join(str(x) for x in units))
             self.updateUnitsSelectedView()
@@ -1063,6 +1104,34 @@ class MyApp(QWidget):
 
     def clickOnTable(self, index):
         self.merge_cluster_id2 = self.similar_cluster_ids[index.row()]
+        self.updateMergeCluster2()
+
+    def previousCluster2(self):
+        if self.isSplitState:
+            return
+
+        idx_this = np.where(self.similar_cluster_ids == self.merge_cluster_id2)[0]
+        if idx_this.size == 0:
+            return
+
+        if idx_this[0] <= 0:
+            return
+
+        self.merge_cluster_id2 = self.similar_cluster_ids[idx_this[0]-1]
+        self.updateMergeCluster2()
+
+    def nextCluster2(self):
+        if self.isSplitState:
+            return
+
+        idx_this = np.where(self.similar_cluster_ids == self.merge_cluster_id2)[0]
+        if idx_this.size == 0:
+            return
+
+        if idx_this[0] >= len(self.similar_cluster_ids)-1:
+            return
+
+        self.merge_cluster_id2 = self.similar_cluster_ids[idx_this[0]+1]
         self.updateMergeCluster2()
 
     def closeEvent(self, event):
